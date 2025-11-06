@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spanish Tourism Marimekko Chart</title>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.10.3/Recharts.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(to bottom right, #f8fafc, #e2e8f0);
+            min-height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useRef } = React;
+
+        const MarimekkoChart = () => {
+            const svgRef = useRef(null);
+            const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, data: null });
+            const [hoveredSegment, setHoveredSegment] = useState(null);
+
+            const rawData = `Total Nacional	54319372	21815932	1924295	399189	1127723	4523050	4725290	906976
+01 Andalucía	10620544	4892863	283398	85224	266898	749658	669025	250517
+02 Aragón	2356198	375199	23397	4043	25318	36254	68291	14389
+03 Asturias	1608350	222679	11755	1473	3953	38630	56582	2864
+04 Balears	1609420	6667198	188351	8727	30733	249611	202849	41610
+05 Canarias	2388832	4703370	169270	4217	12569	58266	53141	26920
+06 Cantabria	1035846	183402	7945	1194	2558	23943	40902	2846
+07 Castilla y León	3896403	745328	29554	8196	33703	126808	144337	19658
+08 Castilla-La Mancha	1922420	175501	16537	4180	17286	37820	53409	8965
+09 Cataluña	7633663	7105454	666128	144182	324159	1530459	1054062	212371
+10 C. Valenciana	5384694	2017877	152978	15649	70571	160415	247403	106629
+11 Extremadura	1230806	163737	5996	807	22360	11927	24711	5776
+12 Galicia	3515876	968996	30017	10839	21444	230031	229815	13786
+13 Madrid	6655039	2114867	273996	77300	271413	1031579	1645067	139525
+14 Murcia	1157323	178091	11254	784	4970	10708	27583	17642
+15 Navarra	749647	185884	6151	1469	3213	35405	31263	5474
+16 País Vasco	2011343	1032446	43023	29962	14998	169006	159859	17448
+17 La Rioja	459167	69388	3387	861	1453	21513	14809	1771`;
+
+            const categories = [
+                'Residentes España',
+                'Resto Europa',
+                'Sin UE',
+                'Japón',
+                'Rep. China',
+                'EE.UU.',
+                'Resto América',
+                'Países africanos'
+            ];
+
+            const colors = [
+                '#3b82f6', '#ef4444', '#10b981', '#f59e0b',
+                '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'
+            ];
+
+            const processedData = useMemo(() => {
+                const lines = rawData.trim().split('\n').slice(1);
+                
+                return lines.map(line => {
+                    const values = line.split('\t');
+                    const region = values[0];
+                    const numbers = values.slice(1).map(v => parseFloat(v) || 0);
+                    const total = numbers.reduce((a, b) => a + b, 0);
+                    
+                    const segments = categories.map((name, i) => ({
+                        name,
+                        value: numbers[i],
+                        percentage: total > 0 ? (numbers[i] / total * 100) : 0
+                    }));
+                    
+                    return { region, total, segments };
+                }).filter(d => d.total > 0);
+            }, []);
+
+            const grandTotal = useMemo(() => 
+                processedData.reduce((sum, d) => sum + d.total, 0),
+                [processedData]
+            );
+
+            const chartWidth = 1200;
+            const chartHeight = 600;
+            const margin = { top: 60, right: 20, bottom: 120, left: 80 };
+            const innerWidth = chartWidth - margin.left - margin.right;
+            const innerHeight = chartHeight - margin.top - margin.bottom;
+
+            const bars = useMemo(() => {
+                let xOffset = 0;
+                
+                return processedData.map(d => {
+                    const barWidth = (d.total / grandTotal) * innerWidth;
+                    const barData = {
+                        region: d.region,
+                        x: xOffset,
+                        width: barWidth,
+                        total: d.total,
+                        widthPercent: (d.total / grandTotal * 100).toFixed(1),
+                        segments: []
+                    };
+                    
+                    let yOffset = 0;
+                    d.segments.forEach((seg, i) => {
+                        const segHeight = (seg.percentage / 100) * innerHeight;
+                        barData.segments.push({
+                            name: seg.name,
+                            value: seg.value,
+                            percentage: seg.percentage,
+                            y: yOffset,
+                            height: segHeight,
+                            color: colors[i]
+                        });
+                        yOffset += segHeight;
+                    });
+                    
+                    xOffset += barWidth;
+                    return barData;
+                });
+            }, [processedData, grandTotal, innerWidth, innerHeight]);
+
+            const handleMouseMove = (e, bar, segment) => {
+                const rect = svgRef.current.getBoundingClientRect();
+                setTooltip({
+                    visible: true,
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top,
+                    data: { bar, segment }
+                });
+                setHoveredSegment(`${bar.region}-${segment.name}`);
+            };
+
+            const handleMouseLeave = () => {
+                setTooltip({ visible: false, x: 0, y: 0, data: null });
+                setHoveredSegment(null);
+            };
+
+            return (
+                <div style={{
+                    width: '100%',
+                    minHeight: '100vh',
+                    padding: '24px'
+                }}>
+                    <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
+                        <div style={{
+                            background: 'white',
+                            borderRadius: '8px',
+                            boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                            padding: '24px',
+                            marginBottom: '24px'
+                        }}>
+                            <h1 style={{
+                                fontSize: '30px',
+                                fontWeight: 'bold',
+                                color: '#1f2937',
+                                marginBottom: '8px'
+                            }}>
+                                Spanish Tourism Marimekko Chart
+                            </h1>
+                            <p style={{
+                                color: '#6b7280',
+                                marginBottom: '16px'
+                            }}>
+                                Tourist travelers by autonomous community and country of origin
+                            </p>
+                            <div style={{
+                                background: '#eff6ff',
+                                borderLeft: '4px solid #3b82f6',
+                                padding: '16px',
+                                fontSize: '14px',
+                                color: '#374151'
+                            }}>
+                                <p style={{ fontWeight: '600', marginBottom: '4px' }}>How to read this chart:</p>
+                                <p>• <strong>Bar width</strong> = Total number of travelers (wider = more tourism)</p>
+                                <p>• <strong>Segment height</strong> = Percentage from each origin country/region</p>
+                                <p>• Hover over segments for detailed information</p>
+                            </div>
+                        </div>
+
+                        <div style={{
+                            background: 'white',
+                            borderRadius: '8px',
+                            boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                            padding: '24px',
+                            position: 'relative'
+                        }}>
+                            <svg 
+                                ref={svgRef}
+                                width={chartWidth} 
+                                height={chartHeight}
+                                style={{ display: 'block', margin: '0 auto' }}
+                            >
+                                <g transform={`translate(${margin.left},${margin.top})`}>
+                                    <line x1={0} y1={0} x2={0} y2={innerHeight} stroke="#374151" strokeWidth={2} />
+                                    {[0, 25, 50, 75, 100].map(tick => (
+                                        <g key={tick}>
+                                            <line 
+                                                x1={-5} 
+                                                y1={innerHeight - (tick / 100) * innerHeight}
+                                                x2={0}
+                                                y2={innerHeight - (tick / 100) * innerHeight}
+                                                stroke="#374151"
+                                                strokeWidth={2}
+                                            />
+                                            <text
+                                                x={-10}
+                                                y={innerHeight - (tick / 100) * innerHeight}
+                                                textAnchor="end"
+                                                dominantBaseline="middle"
+                                                style={{ fontSize: '12px', fill: '#6b7280' }}
+                                            >
+                                                {tick}%
+                                            </text>
+                                            <line
+                                                x1={0}
+                                                y1={innerHeight - (tick / 100) * innerHeight}
+                                                x2={innerWidth}
+                                                y2={innerHeight - (tick / 100) * innerHeight}
+                                                stroke="#e5e7eb"
+                                                strokeWidth={1}
+                                                strokeDasharray="4"
+                                            />
+                                        </g>
+                                    ))}
+                                    
+                                    {bars.map((bar, i) => (
+                                        <g key={i}>
+                                            {bar.segments.map((seg, j) => (
+                                                <rect
+                                                    key={j}
+                                                    x={bar.x}
+                                                    y={innerHeight - seg.y - seg.height}
+                                                    width={bar.width}
+                                                    height={seg.height}
+                                                    fill={seg.color}
+                                                    opacity={hoveredSegment === null || hoveredSegment === `${bar.region}-${seg.name}` ? 1 : 0.3}
+                                                    stroke="white"
+                                                    strokeWidth={1}
+                                                    onMouseMove={(e) => handleMouseMove(e, bar, seg)}
+                                                    onMouseLeave={handleMouseLeave}
+                                                    style={{ cursor: 'pointer', transition: 'opacity 0.2s' }}
+                                                />
+                                            ))}
+                                            
+                                            <text
+                                                x={bar.x + bar.width / 2}
+                                                y={innerHeight + 15}
+                                                textAnchor="end"
+                                                transform={`rotate(-45 ${bar.x + bar.width / 2} ${innerHeight + 15})`}
+                                                style={{ fontSize: '12px', fill: '#374151', fontWeight: '500' }}
+                                            >
+                                                {bar.region}
+                                            </text>
+                                            <text
+                                                x={bar.x + bar.width / 2}
+                                                y={innerHeight + 30}
+                                                textAnchor="end"
+                                                transform={`rotate(-45 ${bar.x + bar.width / 2} ${innerHeight + 30})`}
+                                                style={{ fontSize: '11px', fill: '#9ca3af' }}
+                                            >
+                                                ({bar.widthPercent}%)
+                                            </text>
+                                        </g>
+                                    ))}
+                                    
+                                    <line 
+                                        x1={0} 
+                                        y1={innerHeight} 
+                                        x2={innerWidth} 
+                                        y2={innerHeight} 
+                                        stroke="#374151" 
+                                        strokeWidth={2}
+                                    />
+                                </g>
+                            </svg>
+
+                            {tooltip.visible && tooltip.data && (
+                                <div
+                                    style={{
+                                        position: 'absolute',
+                                        background: 'white',
+                                        padding: '12px',
+                                        border: '1px solid #d1d5db',
+                                        borderRadius: '6px',
+                                        boxShadow: '0 10px 15px rgba(0,0,0,0.1)',
+                                        fontSize: '14px',
+                                        pointerEvents: 'none',
+                                        zIndex: 10,
+                                        left: tooltip.x + 10,
+                                        top: tooltip.y + 10,
+                                        maxWidth: '250px'
+                                    }}
+                                >
+                                    <p style={{ fontWeight: 'bold', color: '#1f2937', marginBottom: '8px' }}>
+                                        {tooltip.data.bar.region}
+                                    </p>
+                                    <p style={{ color: '#6b7280', fontSize: '12px', marginBottom: '8px' }}>
+                                        Total: {tooltip.data.bar.total.toLocaleString()} travelers
+                                    </p>
+                                    <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '8px', marginTop: '8px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                            <div 
+                                                style={{
+                                                    width: '12px',
+                                                    height: '12px',
+                                                    borderRadius: '2px',
+                                                    backgroundColor: tooltip.data.segment.color
+                                                }}
+                                            />
+                                            <span style={{ fontWeight: '600' }}>{tooltip.data.segment.name}</span>
+                                        </div>
+                                        <p style={{ color: '#374151', marginLeft: '20px' }}>
+                                            {tooltip.data.segment.value.toLocaleString()} travelers
+                                        </p>
+                                        <p style={{ color: '#6b7280', marginLeft: '20px' }}>
+                                            {tooltip.data.segment.percentage.toFixed(1)}% of region
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{
+                            background: 'white',
+                            borderRadius: '8px',
+                            boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                            padding: '24px',
+                            marginTop: '24px'
+                        }}>
+                            <h3 style={{ fontWeight: 'bold', color: '#1f2937', marginBottom: '12px' }}>
+                                Tourist Origin
+                            </h3>
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                                gap: '12px'
+                            }}>
+                                {categories.map((cat, i) => (
+                                    <div 
+                                        key={i} 
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            cursor: 'pointer',
+                                            padding: '8px',
+                                            borderRadius: '4px',
+                                            transition: 'background-color 0.2s'
+                                        }}
+                                        onMouseEnter={() => setHoveredSegment(cat)}
+                                        onMouseLeave={() => setHoveredSegment(null)}
+                                    >
+                                        <div 
+                                            style={{
+                                                width: '16px',
+                                                height: '16px',
+                                                borderRadius: '2px',
+                                                backgroundColor: colors[i]
+                                            }}
+                                        />
+                                        <span style={{ fontSize: '14px', color: '#374151' }}>{cat}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div style={{
+                            background: '#f9fafb',
+                            borderRadius: '8px',
+                            padding: '16px',
+                            marginTop: '24px',
+                            fontSize: '12px',
+                            color: '#6b7280'
+                        }}>
+                            <p><strong>Data source:</strong> INE (Instituto Nacional de Estadística) - Encuesta de Ocupación Hotelera</p>
+                            <p style={{ marginTop: '4px' }}>
+                                <strong>Chart type:</strong> Marimekko chart with variable bar widths proportional to total tourist volume
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<MarimekkoChart />, document.getElementById('root'));
+    </script>
+</body>
+</html>
